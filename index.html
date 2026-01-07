@@ -1078,16 +1078,16 @@
 
                 // 并发加载：地图文件 + 你的业务 JSON
                 const [p, c, d, biz] = await Promise.all([
-                    fetchJson('./shp/province_summary.geojson'),
-                    fetchJson('./shp/city_summary.geojson'),
-                    fetchJson('./shp/district_summary.geojson'),
-                    fetchJson('./business_data.json')
+                    fetchJson('./data/shp/province_summary.geojson'),
+                    fetchJson('./data/shp/city_summary.geojson'),
+                    fetchJson('./data/shp/district_summary.geojson'),
+                    fetchJson('./data/business_data.json')
                 ]);
 
                 fullData.province = p;
                 fullData.city = c;
                 fullData.district = d;
-                businessData = biz; // 挂载业务数据
+                businessData = biz;
 
                 updateGlobalStats();
                 renderGeoJson();

@@ -304,10 +304,10 @@
             try {
                 // 同时加载地图数据和业务详细数据
                 const [pGeo, cGeo, dGeo, bData] = await Promise.all([
-                    fetchJson('./shp/province_summary.geojson'),
-                    fetchJson('./shp/city_summary.geojson'),
-                    fetchJson('./shp/district_summary.geojson'),
-                    fetchJson('./business_data.json')
+                    fetchJson('./data/shp/province_summary.geojson'),
+                    fetchJson('./data/shp/city_summary.geojson'),
+                    fetchJson('./data/shp/district_summary.geojson'),
+                    fetchJson('./data/business_data.json')
                 ]);
 
                 fullData = { province: pGeo, city: cGeo, district: dGeo };
