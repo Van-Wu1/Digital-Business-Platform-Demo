@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>业务数据实时看板 - 预览版</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* 引入字体 */
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Inter:wght@400;600;700&display=swap');
+
+        :root {
+            /* 导航条配色：参考图中的深色调 */
+            --header-bg: linear-gradient(90deg, #0f172a 0%, #1e293b 100%);
+            --accent-blue: #3b82f6;
+            /* 阴影效果：参考图中那种深邃、有质感的投影 */
+            --ref-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.12), 0 8px 16px -4px rgba(0, 0, 0, 0.08);
+            --card-border: #e2e8f0;
+        }
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background-color: #f1f5f9; /* 浅灰底色，反衬白色卡片 */
+            font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: #334155;
+        }
+
+        /* --- 顶部导航条（完全按照参考图重写样式） --- */
+        .dashboard-header {
+            width: 100%;
+            height: 64px;
+            background: var(--header-bg);
+            border-bottom: 2px solid var(--accent-blue);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+            position: relative;
+            z-index: 1100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-box {
+            width: 32px;
+            height: 32px;
+            background: var(--accent-blue);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+
+        .title-text h1 {
+            color: #f8fafc;
+            font-size: 18px;
+            font-weight: 700;
+            margin: 0;
+            line-height: 1;
+        }
+
+        .title-text p {
+            color: #94a3b8;
+            font-size: 10px;
+            margin: 2px 0 0 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-tag {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 4px 12px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #cbd5e1;
+        }
+
+        .pulse-indicator {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse-kf 2s infinite;
+        }
+
+        @keyframes pulse-kf {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* --- 布局结构 --- */
+        .main-container {
+            height: calc(100vh - 64px);
+            display: flex;
+            padding: 24px;
+            gap: 24px;
+            box-sizing: border-box;
+        }
+
+        /* --- 卡片样式（参考图阴影与颜色） --- */
+        .card-module {
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--ref-shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-clip: padding-box;
+        }
+
+        .left-panel {
+            flex: 1;
+            position: relative;
+        }
+
+        .right-panel {
+            width: 380px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* 内部标题 */
+        .card-head {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-head h2 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-head h2::before {
+            content: '';
+            width: 3px;
+            height: 14px;
+            background: var(--accent-blue);
+            border-radius: 2px;
+        }
+
+        /* --- 地图控件样式 --- */
+        #map { width: 100%; height: 100%; background: #f8fafc; z-index: 1; }
+
+        .map-ctrls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            padding: 4px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            gap: 2px;
+        }
+
+        .m-btn {
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 6px;
+            color: #64748b;
+            transition: all 0.2s;
+        }
+
+        .m-btn.active {
+            background: white;
+            color: var(--accent-blue);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .level-tag {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: var(--accent-blue);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+        }
+
+        /* 图例 */
+        .map-legend {
+            position: absolute;
+            bottom: 24px;
+            left: 24px;
+            z-index: 1000;
+            background: white;
+            padding: 14px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 10px 15px rgba(0,0,0,0.05);
+            width: 180px;
+        }
+
+        .legend-gradient {
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(to right, #bfdbfe, #60a5fa, #3b82f6, #1d4ed8, #1e3a8a);
+            margin: 8px 0;
+        }
+
+        /* 其他原有内容 */
+        .info-tooltip { background: #1e293b !important; color: white !important; border: none !important; border-radius: 6px !important; padding: 8px 12px !important; font-size: 12px !important; }
+        .empty-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; font-size: 12px; text-align: center; padding: 40px; }
+    </style>
+</head>
+
+<body>
+
+    <header class="dashboard-header">
+        <div class="header-left">
+            <div class="logo-box">A</div>
+            <div class="title-text">
+                <h1>业务数据实时看板</h1>
+                <p>Enterprise Resource Planning & Analytics</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <div id="clock-display" class="font-mono font-bold text-slate-300 text-sm">12:00:00</div>
+            <div class="status-tag">
+                <div class="pulse-indicator"></div>
+                运行中
+            </div>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- 左侧地图 -->
+        <section class="card-module left-panel">
+            <div id="zoom-indicator" class="level-tag">视图层级: 省级</div>
+            <div class="map-ctrls">
+                <button id="btn-osm" class="m-btn active" onclick="switchLayer('osm')">标准</button>
+                <button id="btn-gaode" class="m-btn" onclick="switchLayer('gaode')">极简</button>
+                <button id="btn-mapbox" class="m-btn" onclick="switchLayer('mapbox')">夜间</button>
+            </div>
+            
+            <div id="map"></div>
+
+            <div class="map-legend">
+                <div class="flex justify-between text-[10px] font-bold text-slate-400">
+                    <span>收入分布</span>
+                    <span>CNY</span>
+                </div>
+                <div class="legend-gradient"></div>
+                <div class="flex justify-between text-[10px] font-mono text-slate-500">
+                    <span id="legend-min">0</span>
+                    <span id="legend-max">0</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 右侧详情 -->
+        <aside class="right-panel">
+            <div class="card-module" style="height: 320px;">
+                <div class="card-head">
+                    <h2>区域详情指标</h2>
+                </div>
+                <div id="sidebar-info" class="flex-1 overflow-y-auto">
+                    <div class="empty-box">
+                        <svg class="w-10 h-10 mb-2 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        请在地图上悬浮区域查看
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-module flex-1">
+                <div class="card-head">
+                    <h2 id="treemap-title">贡献占比分析</h2>
+                </div>
+                <div id="treemap" class="flex-1 p-4"></div>
+            </div>
+        </aside>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // --- 完全保留你 00.html 的业务代码逻辑 ---
+        const layers = {
+            osm: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, minZoom: 3 }),
+            mapbox: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, minZoom: 3 }),
+            gaode: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}', {
+                subdomains: ["1", "2", "3", "4"], maxZoom: 19, minZoom: 3
+            })
+        };
+
+        const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([35.5, 106], 4);
+        layers.osm.addTo(map);
+
+        let fullData = { province: null, city: null, district: null };
+        let nationalTotals = { revenue: 0 };
+        let activeGeoLayer = null;
+        let currentLevel = 'province';
+        let revenueStats = { min: 0, max: 0, range: 0 };
+
+        function getColor(v) {
+            if (!v) return '#f1f5f9';
+            const ratio = (v - revenueStats.min) / (revenueStats.range || 1);
+            return d3.interpolateRgbBasis(["#bfdbfe", "#60a5fa", "#3b82f6", "#1d4ed8", "#1e3a8a"])(ratio);
+        }
+
+        function dataStyle(feature) {
+            const v = feature.properties.revenue_rmb;
+            return {
+                fillColor: getColor(v),
+                weight: currentLevel === 'district' ? 0.8 : 1.2,
+                color: 'white',
+                opacity: 1,
+                fillOpacity: v ? 0.9 : 0.3
+            };
+        }
+
+        function onEachFeature(feature, layer) {
+            layer.on({
+                mouseover: (e) => {
+                    const l = e.target;
+                    l.setStyle({ weight: 3, color: '#1e293b', fillOpacity: 1 });
+                    l.bringToFront();
+                    if (feature.properties.revenue_rmb) {
+                        l.bindTooltip(`<b>${feature.properties.name}</b><br>营收: ¥${feature.properties.revenue_rmb.toLocaleString()}`, { sticky: true, className: 'info-tooltip' }).openTooltip();
+                    }
+                    updateSidebar(feature.properties);
+                },
+                mouseout: (e) => activeGeoLayer.resetStyle(e.target),
+                click: (e) => map.flyToBounds(e.target.getBounds(), { padding: [50, 50] })
+            });
+        }
+
+        function updateSidebar(props) {
+            const container = document.getElementById('sidebar-info');
+            const val = props.revenue_rmb || 0;
+            const percent = nationalTotals.revenue > 0 ? ((val / nationalTotals.revenue) * 100).toFixed(2) : "0";
+            
+            container.innerHTML = `
+                <div class="p-5 animate-in fade-in duration-300">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-xl font-bold text-slate-800">${props.name}</h3>
+                        <span class="bg-blue-600 text-white text-[10px] px-2 py-1 rounded font-bold">${percent}%</span>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                            <p class="text-[10px] text-slate-400 font-bold uppercase">年度营收总额</p>
+                            <p class="text-xl font-mono font-bold text-blue-700">¥${val.toLocaleString()}</p>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                            <p class="text-[10px] text-slate-400 font-bold uppercase">销售活跃度</p>
+                            <p class="text-lg font-mono font-bold text-slate-600">88.5%</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function initData() {
+            try {
+                // 这里使用占位路径，确保你实际运行时替换为正确的 geojson 路径
+                const [p, c, d] = await Promise.all([
+                    fetch('./shp/province_summary.geojson'),
+                    fetch('./shp/city_summary.geojson'),
+                    fetch('./shp/district_summary.geojson')
+                ]);
+                fullData.province = await p.json();
+                fullData.city = await c.json();
+                fullData.district = await d.json();
+                
+                nationalTotals.revenue = fullData.province.features.reduce((acc, f) => acc + (f.properties.revenue_rmb || 0), 0);
+                
+                renderGeo();
+                map.on('zoomend', () => {
+                    const z = map.getZoom();
+                    let n = 'province';
+                    if (z > 8) n = 'district';
+                    else if (z > 5) n = 'city';
+                    if (n !== currentLevel) {
+                        currentLevel = n;
+                        document.getElementById('zoom-indicator').innerText = `视图层级: ${n === 'province' ? '省级' : (n === 'city' ? '市级' : '区级')}`;
+                        renderGeo();
+                    }
+                });
+            } catch (e) { console.warn("GeoJSON 加载失败，请检查路径是否正确", e); }
+        }
+
+        function renderGeo() {
+            const data = fullData[currentLevel];
+            if (!data) return;
+            const vals = data.features.map(f => f.properties.revenue_rmb).filter(v => v > 0);
+            revenueStats.min = Math.min(...vals) || 0;
+            revenueStats.max = Math.max(...vals) || 0;
+            revenueStats.range = revenueStats.max - revenueStats.min;
+            
+            document.getElementById('legend-min').innerText = revenueStats.min.toLocaleString();
+            document.getElementById('legend-max').innerText = revenueStats.max.toLocaleString();
+
+            if (activeGeoLayer) map.removeLayer(activeGeoLayer);
+            activeGeoLayer = L.geoJSON(data, { style: dataStyle, onEachFeature: onEachFeature }).addTo(map);
+            renderTreemap(data);
+        }
+
+        function renderTreemap(data) {
+            const container = document.getElementById('treemap');
+            const width = container.offsetWidth;
+            const height = 240;
+            const sorted = data.features
+                .filter(f => f.properties.revenue_rmb > 0)
+                .map(f => ({ name: f.properties.name, value: f.properties.revenue_rmb, props: f.properties }))
+                .sort((a, b) => b.value - a.value).slice(0, 6);
+
+            container.innerHTML = '';
+            if (sorted.length === 0) return;
+
+            const root = d3.hierarchy({ children: sorted }).sum(d => d.value);
+            d3.treemap().size([width, height]).padding(2)(root);
+
+            const svg = d3.select("#treemap").append("svg").attr("width", width).attr("height", height);
+            const nodes = svg.selectAll("g").data(root.leaves()).enter().append("g").attr("transform", d => `translate(${d.x0},${d.y0})`);
+
+            nodes.append("rect")
+                .attr("width", d => d.x1 - d.x0).attr("height", d => d.y1 - d.y0)
+                .attr("fill", d => getColor(d.data.value))
+                .attr("rx", 4)
+                .on("mouseover", (e, d) => updateSidebar(d.data.props));
+
+            nodes.append("text").attr("x", 5).attr("y", 15).attr("fill", "white").attr("font-size", "10px").text(d => d.data.name);
+        }
+
+        function switchLayer(t) {
+            Object.values(layers).forEach(l => map.removeLayer(l));
+            layers[t].addTo(map);
+            document.querySelectorAll('.m-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-${t}`).classList.add('active');
+        }
+
+        window.onload = () => {
+            initData();
+            setInterval(() => {
+                document.getElementById('clock-display').innerText = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            }, 1000);
+        };
+    </script>
+</body>
+
+</html>

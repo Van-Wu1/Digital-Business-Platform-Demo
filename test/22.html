@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数字化业务决策指挥中心 - 视觉增强版</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        :root {
+            --ios-bg: #f2f2f7;
+            --ios-card: rgba(255, 255, 255, 0.95);
+            --accent-blue: #007aff;
+            --deep-blue: #003087;
+            --vibrant-orange: #f26d21;
+            --map-border: rgba(242, 109, 33, 0.4);
+        }
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background-color: var(--ios-bg);
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: #1c1c1e;
+        }
+
+        .glass {
+            background: var(--ios-card);
+            backdrop-filter: saturate(180%) blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+        }
+
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            grid-template-rows: 90px 1fr;
+            gap: 16px;
+            padding: 16px;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .top-shelf {
+            grid-column: span 12;
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            border-radius: 20px;
+        }
+
+        .divider {
+            width: 1px;
+            height: 32px;
+            background: rgba(0, 0, 0, 0.08);
+            margin: 0 32px;
+        }
+
+        .map-section {
+            grid-column: span 8;
+            border-radius: 28px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.02);
+        }
+
+        .sidebar-section {
+            grid-column: span 4;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-height: 0;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background: #ffffff;
+        }
+
+        .leaflet-interactive {
+            filter: drop-shadow(0 0 2px var(--map-border));
+            transition: stroke-width 0.2s, stroke 0.2s;
+        }
+
+        .map-switch-ctrl {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 1000;
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            border-radius: 12px;
+        }
+
+        .switch-btn {
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 8px;
+            color: #8e8e93;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .switch-btn.active {
+            background: white;
+            color: var(--accent-blue);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .ios-legend {
+            position: absolute;
+            bottom: 24px;
+            left: 24px;
+            z-index: 1000;
+            padding: 14px 18px;
+            border-radius: 18px;
+            width: 220px;
+        }
+
+        .legend-gradient {
+            height: 5px;
+            border-radius: 3px;
+            margin: 8px 0;
+            background: linear-gradient(to right, #003087, #93c5fd, #fff, #fde68a, #f26d21);
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #d1d1d6;
+            border-radius: 10px;
+        }
+
+        /* 进度条样式优化 */
+        .progress-capsule {
+            height: 10px;
+            background: rgba(0, 0, 0, 0.04);
+            border-radius: 6px;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 列表项增强 */
+        .rank-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 16px;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            background: rgba(255, 255, 255, 0.3);
+            border: 1px solid transparent;
+        }
+
+        .rank-item:hover {
+            background: white;
+            border-color: rgba(0, 122, 255, 0.1);
+            transform: translateX(4px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .rank-index {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 900;
+            background: #f2f2f7;
+            color: #aeaeb2;
+            flex-shrink: 0;
+        }
+
+        .rank-item:nth-child(1) .rank-index {
+            background: #007aff;
+            color: white;
+        }
+
+        .rank-item:nth-child(2) .rank-index {
+            background: #5856d6;
+            color: white;
+        }
+
+        .rank-item:nth-child(3) .rank-index {
+            background: #ff9500;
+            color: white;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <!-- 顶部动态统计 -->
+        <header class="top-shelf glass">
+            <div class="flex items-center gap-10">
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">省级节点</span>
+                    <span class="text-2xl font-black text-slate-800" id="stat-provinces">0</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">城市中心</span>
+                    <span class="text-2xl font-black text-slate-800" id="stat-cities">0</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">业务区块</span>
+                    <span class="text-2xl font-black text-slate-800" id="stat-districts">0</span>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="flex-1 flex gap-16">
+                <div class="flex flex-col">
+                    <div class="flex items-center gap-2 mb-1">
+                        <div class="w-2.5 h-2.5 rounded-full bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.4)]"></div>
+                        <span class="text-[10px] font-black text-blue-600 uppercase tracking-widest">全量年度营收</span>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <span class="text-2xl font-black text-slate-800 tracking-tighter" id="total-revenue">0.0</span>
+                        <span class="text-[10px] font-bold text-slate-400">万</span>
+                    </div>
+                </div>
+                <div class="flex flex-col">
+                    <div class="flex items-center gap-2 mb-1">
+                        <div class="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(242,109,33,0.4)]"></div>
+                        <span class="text-[10px] font-black text-orange-600 uppercase tracking-widest">全量销售总额</span>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <span class="text-2xl font-black text-slate-800 tracking-tighter" id="total-sales">0.0</span>
+                        <span class="text-[10px] font-bold text-slate-400">万</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-5 py-2.5 bg-white/50 border border-white rounded-2xl shadow-sm">
+                <div class="flex items-center gap-2.5">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span
+                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+                    </span>
+                    <span class="text-[11px] font-black text-slate-500 uppercase tracking-tight">Data
+                        Synchronizing</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 地图主体 -->
+        <main class="map-section glass">
+            <div class="map-switch-ctrl glass">
+                <div id="btn-light" class="switch-btn active" onclick="switchLayer('light')">极简</div>
+                <div id="btn-osm" class="switch-btn" onclick="switchLayer('osm')">标准</div>
+                <div id="btn-sat" class="switch-btn" onclick="switchLayer('sat')">影像</div>
+            </div>
+            <div id="map"></div>
+            <div class="ios-legend glass">
+                <div class="flex justify-between text-[9px] font-black text-slate-400 uppercase tracking-tighter">
+                    <span>低值区域</span>
+                    <span>均值水平</span>
+                    <span>高绩效区</span>
+                </div>
+                <div class="legend-gradient"></div>
+                <div class="flex justify-between font-mono text-[10px] text-slate-500 font-bold">
+                    <span id="l-min">0</span>
+                    <span id="l-max">MAX</span>
+                </div>
+            </div>
+        </main>
+
+        <!-- 右侧看板 -->
+        <aside class="sidebar-section">
+            <div class="p-8 glass rounded-[32px]" id="sidebar-info">
+                <div class="empty-state">
+                    <div class="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center mb-5">
+                        <svg class="w-8 h-8 text-blue-500 animate-pulse" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122">
+                            </path>
+                        </svg>
+                    </div>
+                    <p class="text-[13px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">等待选取</p>
+                    <p class="text-[11px] text-slate-400 leading-relaxed">请在地图上选择或悬停区域<br>以实时查看详细绩效指标</p>
+                </div>
+            </div>
+
+            <div class="flex-1 p-8 glass rounded-[32px] flex flex-col min-h-0 overflow-hidden">
+                <div class="flex items-center justify-between mb-6 flex-shrink-0">
+                    <h3 class="text-[12px] font-black text-slate-800 tracking-widest uppercase">区域绩效排行 (TOP 30)</h3>
+                    <span class="px-3 py-1 bg-blue-600 rounded-lg text-[10px] font-black text-white shadow-sm"
+                        id="current-rank-level">PROVINCE</span>
+                </div>
+                <div id="ranking-list" class="flex-1 overflow-y-auto custom-scroll pr-2"></div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const layers = {
+            light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'),
+            osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
+            sat: L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', { subdomains: '1234' })
+        };
+
+        const map = L.map('map', {
+            zoomControl: false,
+            attributionControl: false,
+            minZoom: 4,
+            maxBounds: [[10, 70], [60, 140]],
+            worldCopyJump: true
+        }).setView([38, 104], 4);
+
+        layers.light.addTo(map);
+
+        let fullData = { province: null, city: null, district: null };
+        let currentLevel = 'province';
+        let revenueStats = { min: 0, max: 0, range: 0 };
+        let activeGeoLayer = null;
+        let backgroundOutlineLayer = null;
+
+        const colorScale = d3.scaleLinear()
+            .domain([0, 0.5, 1])
+            .range(["#003087", "#e2e8f0", "#f26d21"])
+            .interpolate(d3.interpolateHcl);
+
+        function animateValue(id, start, end, duration, isInteger = false) {
+            const obj = document.getElementById(id);
+            if (!obj) return;
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const current = progress * (end - start) + start;
+
+                if (isInteger) {
+                    obj.innerHTML = Math.floor(current).toLocaleString();
+                } else {
+                    obj.innerHTML = current.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+                }
+
+                if (progress < 1) window.requestAnimationFrame(step);
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        function switchLayer(type) {
+            Object.values(layers).forEach(l => map.removeLayer(l));
+            layers[type].addTo(map);
+            document.querySelectorAll('.switch-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-${type}`).classList.add('active');
+        }
+
+        function updateSidebar(props) {
+            const container = document.getElementById('sidebar-info');
+            const rev = props.revenue_rmb || 0;
+            const sales = props.sales_rmb || 0;
+
+            const revPct = Math.max(3, (rev / revenueStats.max) * 100);
+            const salesMax = Math.max(...fullData[currentLevel].features.map(f => f.properties.sales_rmb || 0));
+            const salesPct = Math.max(3, (sales / salesMax) * 100);
+
+            container.innerHTML = `
+                <div class="animate-in fade-in slide-in-from-right-2 duration-300">
+                    <div class="flex justify-between items-end mb-8">
+                        <div>
+                            <p class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1.5">Region Analysis</p>
+                            <h2 class="text-2xl font-black text-slate-800 leading-none">${props.name}</h2>
+                        </div>
+                        <span class="text-[10px] font-mono font-black text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">ID.${props.id || '00'}</span>
+                    </div>
+                    
+                    <div class="space-y-6">
+                        <div>
+                            <div class="flex justify-between items-center mb-3">
+                                <span class="text-[11px] font-black text-slate-500">营收绩效 (REVENUE)</span>
+                                <span class="text-sm font-mono font-black text-blue-700">¥${(rev / 10000).toFixed(1)}w</span>
+                            </div>
+                            <div class="progress-capsule">
+                                <div class="progress-fill shadow-[0_4px_12px_rgba(0,48,135,0.25)]" style="width: ${revPct}%; background: linear-gradient(90deg, #003087, #007aff)"></div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <div class="flex justify-between items-center mb-3">
+                                <span class="text-[11px] font-black text-slate-500">销售体量 (SALES)</span>
+                                <span class="text-sm font-mono font-black text-orange-600">¥${(sales / 10000).toFixed(1)}w</span>
+                            </div>
+                            <div class="progress-capsule">
+                                <div class="progress-fill shadow-[0_4px_12px_rgba(242,109,33,0.25)]" style="width: ${salesPct}%; background: linear-gradient(90deg, #f26d21, #ff9500)"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRanking(data) {
+            const list = d3.select("#ranking-list");
+            list.selectAll("*").remove();
+            const sorted = data.features
+                .filter(f => f.properties.revenue_rmb > 0)
+                .sort((a, b) => b.properties.revenue_rmb - a.properties.revenue_rmb)
+                .slice(0, 30);
+
+            const items = list.selectAll(".rank-item").data(sorted).enter().append("div")
+                .attr("class", "rank-item group cursor-pointer");
+
+            items.html((d, i) => `
+                <div class="rank-index">${i + 1}</div>
+                <div class="flex-1">
+                    <div class="flex justify-between mb-2">
+                        <span class="text-[13px] font-black text-slate-700 group-hover:text-blue-600 transition-colors">${d.properties.name}</span>
+                        <span class="text-[11px] font-mono font-black text-slate-500">¥${(d.properties.revenue_rmb / 10000).toFixed(0)}w</span>
+                    </div>
+                    <div class="progress-capsule bg-slate-100">
+                        <div class="progress-fill transition-all duration-1000 shadow-sm" id="rank-bar-${i}" style="width: 0%; background: ${colorScale((d.properties.revenue_rmb - revenueStats.min) / revenueStats.range)}"></div>
+                    </div>
+                </div>
+            `);
+
+            setTimeout(() => sorted.forEach((d, i) => {
+                const el = document.getElementById(`rank-bar-${i}`);
+                if (el) el.style.width = (d.properties.revenue_rmb / revenueStats.max * 100) + "%";
+            }), 100);
+
+            items.on("mouseenter", (e, d) => updateSidebar(d.properties));
+            document.getElementById('current-rank-level').innerText = currentLevel.toUpperCase();
+        }
+
+        function renderGeoJson() {
+            const data = fullData[currentLevel];
+            if (!data) return;
+
+            if (backgroundOutlineLayer) map.removeLayer(backgroundOutlineLayer);
+            backgroundOutlineLayer = L.geoJSON(fullData.province, {
+                style: {
+                    color: 'rgba(242, 109, 33, 0.3)',
+                    weight: 2,
+                    fillOpacity: 1,
+                    fillColor: '#f8fafc',
+                    interactive: false
+                }
+            }).addTo(map);
+
+            const vals = data.features.map(f => f.properties.revenue_rmb || 0).filter(v => v > 0);
+            revenueStats.min = Math.min(...vals) || 0;
+            revenueStats.max = Math.max(...vals) || 1;
+            revenueStats.range = revenueStats.max - revenueStats.min;
+
+            document.getElementById('l-max').innerText = (revenueStats.max / 10000).toFixed(0) + 'W';
+            document.getElementById('l-min').innerText = (revenueStats.min / 10000).toFixed(0) + 'W';
+
+            if (activeGeoLayer) map.removeLayer(activeGeoLayer);
+            activeGeoLayer = L.geoJSON(data, {
+                style: (f) => {
+                    const val = f.properties.revenue_rmb || 0;
+                    return {
+                        fillColor: val > 0 ? colorScale((val - revenueStats.min) / revenueStats.range) : 'transparent',
+                        weight: 1.5,
+                        color: val > 0 ? 'white' : 'rgba(242, 109, 33, 0.15)',
+                        fillOpacity: 0.85
+                    };
+                },
+                onEachFeature: (f, l) => {
+                    l.on({
+                        mouseover: (e) => {
+                            if (f.properties.revenue_rmb > 0) {
+                                e.target.setStyle({ weight: 4, color: '#f26d21', fillOpacity: 1 });
+                                e.target.bringToFront();
+                                updateSidebar(f.properties);
+                            }
+                        },
+                        mouseout: (e) => activeGeoLayer.resetStyle(e.target),
+                        click: (e) => {
+                            map.flyToBounds(e.target.getBounds(), { padding: [80, 80], duration: 0.8 });
+                        }
+                    });
+                }
+            }).addTo(map);
+
+            renderRanking(data);
+        }
+
+        function updateGlobalStats() {
+            const stats = {
+                p: fullData.province.features.filter(f => (f.properties.revenue_rmb || 0) > 0).length,
+                c: fullData.city.features.filter(f => (f.properties.revenue_rmb || 0) > 0).length,
+                d: fullData.district.features.filter(f => (f.properties.revenue_rmb || 0) > 0).length,
+                totalRev: fullData.province.features.reduce((acc, f) => acc + (f.properties.revenue_rmb || 0), 0),
+                totalSales: fullData.province.features.reduce((acc, f) => acc + (f.properties.sales_rmb || 0), 0)
+            };
+
+            animateValue('stat-provinces', 0, stats.p, 800, true);
+            animateValue('stat-cities', 0, stats.c, 1000, true);
+            animateValue('stat-districts', 0, stats.d, 1200, true);
+            animateValue('total-revenue', 0, stats.totalRev / 10000, 1000);
+            animateValue('total-sales', 0, stats.totalSales / 10000, 1000);
+        }
+
+        async function init() {
+            try {
+                const fetchGeo = async (url) => {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error('File not found');
+                    return res.json();
+                };
+
+                const [p, c, d] = await Promise.all([
+                    fetchGeo('./shp/province_summary.geojson').catch(() => mockData('province', 34)),
+                    fetchGeo('./shp/city_summary.geojson').catch(() => mockData('city', 342)),
+                    fetchGeo('./shp/district_summary.geojson').catch(() => mockData('district', 2800))
+                ]);
+
+                fullData.province = p;
+                fullData.city = c;
+                fullData.district = d;
+
+                updateGlobalStats();
+                renderGeoJson();
+
+                map.on('zoomend', () => {
+                    const z = map.getZoom();
+                    let next = z > 8 ? 'district' : (z > 5 ? 'city' : 'province');
+                    if (next !== currentLevel) {
+                        currentLevel = next;
+                        renderGeoJson();
+                    }
+                });
+            } catch (err) { console.error("Data Load Error:", err); }
+        }
+
+        function mockData(level, count) {
+            return {
+                type: "FeatureCollection",
+                features: Array.from({ length: count }, (_, i) => ({
+                    type: "Feature",
+                    properties: {
+                        id: i + 1,
+                        name: `${level === 'province' ? '省份' : level === 'city' ? '城市' : '区块'}${i + 1}`,
+                        revenue_rmb: Math.random() * (level === 'province' ? 5000000 : 50000),
+                        sales_rmb: Math.random() * 8000000
+                    },
+                    geometry: { type: "Point", coordinates: [100 + Math.random() * 15, 30 + Math.random() * 15] }
+                }))
+            };
+        }
+
+        window.onload = () => { map.invalidateSize(); init(); };
+    </script>
+</body>
+
+</html>

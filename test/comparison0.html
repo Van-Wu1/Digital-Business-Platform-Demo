@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>IPSOS - 区域对比</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 1. 强制所有元素隐藏默认鼠标 */
+        * {
+            cursor: none !important;
+        }
+
+        /* 2. 专门针对 Leaflet 的交互层进行覆盖 */
+        .leaflet-interactive,
+        .leaflet-container,
+        .leaflet-grab,
+        .leaflet-pointer,
+        .leaflet-control-zoom a,
+        .region-select {
+            cursor: none !important;
+        }
+
+
+        :root {
+            --ios-bg: #f2f2f7;
+            --accent-blue: #007aff;
+            --accent-orange: #f26d21;
+        }
+
+        body {
+            background: var(--ios-bg);
+            font-family: -apple-system, sans-serif;
+            cursor: none;
+            overflow: hidden;
+            color: #1c1c1e;
+        }
+
+        #cursor {
+            position: fixed;
+            width: 12px;
+            height: 12px;
+            background: var(--accent-blue);
+            border-radius: 50%;
+            pointer-events: none;
+            /* 极其重要：防止自定义光标挡住点击事件 */
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            /* 让跟随更丝滑 */
+            transition: width 0.2s, height 0.2s, background-color 0.2s;
+        }
+
+
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        .map-wrapper {
+            position: relative;
+            border-radius: 28px;
+            overflow: hidden;
+            height: 100%;
+            background: #fff;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .region-select {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 5px 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            width: 130px;
+            font-weight: 600;
+            outline: none;
+        }
+
+        .bar-fill {
+            transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 还原原版 VS 区域样式 */
+        .vs-badge {
+            background: linear-gradient(180deg, #ffffff 0%, #f9f9fb 100%);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border-radius: 24px;
+            padding: 20px 24px;
+            position: relative;
+        }
+
+        .vs-divider {
+            font-style: italic;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-orange));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 32px;
+            font-weight: 900;
+            margin: 0 20px;
+            letter-spacing: 0.1em;
+        }
+
+        /* 增大地区名称字号 */
+        .region-name {
+            font-size: 28px;
+            font-weight: 900;
+            flex: 1;
+            letter-spacing: -0.02em;
+        }
+
+        /* 排名：优化后的轻量化样式，移除黑色厚重块 */
+        .rank-value {
+            font-family: ui-monospace, monospace;
+            font-weight: 900;
+            transition: all 0.4s ease;
+        }
+
+        .rank-win-a {
+            color: var(--accent-blue);
+            transform: scale(1.1);
+            text-shadow: 0 0 15px rgba(0, 122, 255, 0.2);
+        }
+
+        .rank-win-b {
+            color: var(--accent-orange);
+            transform: scale(1.1);
+            text-shadow: 0 0 15px rgba(242, 109, 33, 0.2);
+        }
+
+        .rank-lose {
+            color: #d1d1d6;
+            transform: scale(0.9);
+        }
+
+        /* 指标行：极致紧凑布局 */
+        .metric-row {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 4px 0;
+        }
+
+        /* 面板文字大小 */
+        .metric-label {
+            font-size: 12px;
+            font-weight: 800;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #003087 0%, #007aff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+
+<body class="h-screen p-4 flex flex-col gap-3">
+    <div id="cursor"></div>
+
+    <!-- 增加 Header 高度从 h-14 到 h-20 -->
+    <header class="h-20 glass rounded-2xl flex items-center px-8 shrink-0 relative">
+        <!-- 放在 header 内的左侧或合适位置 -->
+        <button onclick="goBack()"
+            class="flex items-center gap-2 px-4 py-2 bg-white/50 rounded-2xl hover:bg-white transition-all text-sm font-bold text-slate-600 mr-4">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            返回
+        </button>
+        <div class="absolute left-1/2 -translate-x-1/2 text-center">
+            <span class="text-[25px] font-black tracking-tight mb-0.5 gradient-text">数字化业务决策指挥中心</span>
+        </div>
+    </header>
+
+    <main class="flex-1 flex gap-3 min-h-0">
+        <!-- 左侧地图 -->
+        <div class="flex-1 map-wrapper">
+            <div class="absolute top-3 left-3 z-[1000] flex flex-col gap-2">
+                <select id="p-a" class="region-select" onchange="drill('A', 'p')"></select>
+                <select id="c-a" class="region-select" onchange="drill('A', 'c')" disabled></select>
+                <select id="d-a" class="region-select" onchange="drill('A', 'd')" disabled></select>
+            </div>
+            <div id="map-a" class="h-full w-full"></div>
+        </div>
+
+        <!-- 中间对比面板 -->
+        <div class="w-[500px] glass rounded-[32px] p-6 flex flex-col" id="metrics-container">
+            <!-- 还原原版 A vs B 头部 并增大文字 -->
+            <div class="vs-badge text-center mb-6">
+                <div class="flex items-center justify-between">
+                    <span id="name-a" class="region-name text-right text-blue-600 truncate">-</span>
+                    <span class="vs-divider">VS</span>
+                    <span id="name-b" class="region-name text-left text-orange-600 truncate">-</span>
+                </div>
+                <div id="total-diff-tag" class="text-[11px] font-bold text-slate-400 mt-3 uppercase tracking-[0.2em]">
+                    智能数据对比已就绪</div>
+            </div>
+
+            <!-- 指标列表：紧凑布局 -->
+            <div id="metrics-list" class="flex-1 flex flex-col justify-around py-2 overflow-hidden">
+                <div class="text-center text-slate-300 opacity-50 text-sm italic font-bold">请在两侧地图上方选择对比区域...</div>
+            </div>
+        </div>
+
+        <!-- 右侧地图 -->
+        <div class="flex-1 map-wrapper">
+            <div class="absolute top-3 left-3 z-[1000] flex flex-col gap-2">
+                <select id="p-b" class="region-select" onchange="drill('B', 'p')"></select>
+                <select id="c-b" class="region-select" onchange="drill('B', 'c')" disabled></select>
+                <select id="d-b" class="region-select" onchange="drill('B', 'd')" disabled></select>
+            </div>
+            <div id="map-b" class="h-full w-full"></div>
+        </div>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        window.addEventListener('mousemove', e => {
+            const c = document.getElementById('cursor');
+            c.style.left = e.clientX + 'px';
+            c.style.top = e.clientY + 'px';
+
+            if (e.clientX < window.innerWidth / 2) {
+                c.style.background = 'var(--accent-blue)';
+            } else {
+                c.style.background = 'var(--accent-orange)';
+            }
+        });
+
+        let fullData = {};
+        let nationalTotalRevenue = 0;
+        let maps = { A: null, B: null };
+        let layerStacks = { A: { p: null, c: null, d: null }, B: { p: null, c: null, d: null } };
+
+        async function init() {
+            const fetchGeo = url => fetch(url).then(r => r.json());
+            try {
+                [fullData.p, fullData.c, fullData.d] = await Promise.all([
+                    fetchGeo('./shp/province_summary.geojson'),
+                    fetchGeo('./shp/city_summary.geojson'),
+                    fetchGeo('./shp/district_summary.geojson')
+                ]);
+                nationalTotalRevenue = fullData.p.features.reduce((sum, f) => sum + (f.properties.revenue_rmb || 0), 0);
+                ['A', 'B'].forEach(id => {
+                    maps[id] = L.map(`map-${id.toLowerCase()}`, { zoomControl: false, attributionControl: false }).setView([35, 105], 4);
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(maps[id]);
+                    updateLayer(id, 'p', fullData.p.features);
+                    fillSelect(id, 'p', fullData.p.features);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        // 1. 返回主页函数
+        function goBack() {
+            window.location.href = 'index.html';
+        }
+
+        // 2. 自动获取主页传过来的区域名并初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const regionName = urlParams.get('region');
+
+            if (regionName) {
+                // 假设你的对比页面左侧选择框 ID 是 selectA
+                const selectA = document.getElementById('selectA'); // 请检查你代码中 A 选框的真实 ID
+                if (selectA) {
+                    selectA.value = regionName;
+                    // 手动触发一次更新数据的逻辑（假设你的更新函数叫 updateCharts）
+                    if (typeof updateCharts === 'function') updateCharts();
+                }
+            }
+        });
+
+        function fillSelect(side, type, features, parentName = null) {
+            const el = document.getElementById(`${type}-${side.toLowerCase()}`);
+            el.innerHTML = `<option value="">${type === 'p' ? '省份' : type === 'c' ? '城市' : '区县'}</option><option value="ALL">全量</option>`;
+            let filtered = features.filter(f => {
+                const p = f.properties;
+                if (!(p.revenue_rmb > 0 || p.sales_rmb > 0)) return false;
+                if (parentName && parentName !== 'ALL') return p.parent_province === parentName || p.province === parentName || p.parent_city === parentName || p.city === parentName || p.parent_name === parentName;
+                return true;
+            });
+            filtered.sort((a, b) => (b.properties.revenue_rmb || 0) - (a.properties.revenue_rmb || 0)).forEach(f => el.add(new Option(f.properties.name, f.properties.name)));
+            el.disabled = false;
+        }
+
+        function drill(side, type) {
+            const s = side.toLowerCase();
+            const val = document.getElementById(`${type}-${s}`).value;
+            if (type === 'p') {
+                document.getElementById(`c-${s}`).value = ""; document.getElementById(`d-${s}`).value = "";
+                if (val && val !== 'ALL') fillSelect(side, 'c', fullData.c.features, val);
+                else document.getElementById(`c-${s}`).disabled = true;
+            } else if (type === 'c') {
+                document.getElementById(`d-${s}`).value = "";
+                if (val && val !== 'ALL') fillSelect(side, 'd', fullData.d.features, val);
+                else document.getElementById(`d-${s}`).disabled = true;
+            }
+            refreshMap(side);
+            updateStats();
+        }
+
+        function refreshMap(side) {
+            const s = side.toLowerCase(), p = document.getElementById(`p-${s}`).value, c = document.getElementById(`c-${s}`).value, d = document.getElementById(`d-${s}`).value;
+            const map = maps[side], color = side === 'A' ? '#007aff' : '#f26d21';
+            if (layerStacks[side].c) map.removeLayer(layerStacks[side].c);
+            if (layerStacks[side].d) map.removeLayer(layerStacks[side].d);
+            layerStacks[side].p.setStyle(f => ({
+                fillColor: f.properties.name === p ? color : '#000',
+                fillOpacity: f.properties.name === p ? 0.2 : 0.02,
+                color: f.properties.name === p ? color : 'rgba(0,0,0,0.1)',
+                weight: f.properties.name === p ? 2 : 1
+            }));
+            if (p && p !== 'ALL') {
+                const cf = fullData.c.features.filter(f => f.properties.parent_province === p || f.properties.province === p);
+                layerStacks[side].c = L.geoJson(cf, {
+                    style: f => ({ fillColor: f.properties.name === c ? color : 'transparent', fillOpacity: f.properties.name === c ? 0.4 : 0, color: f.properties.name === c ? '#fff' : 'rgba(0,0,0,0.1)', weight: f.properties.name === c ? 1.5 : 0.5 })
+                }).addTo(map);
+            }
+            if (c && c !== 'ALL') {
+                const df = fullData.d.features.filter(f => f.properties.parent_city === c || f.properties.city === c);
+                layerStacks[side].d = L.geoJson(df, {
+                    style: f => ({ fillColor: f.properties.name === d ? color : 'transparent', fillOpacity: f.properties.name === d ? 0.5 : 0, color: f.properties.name === d ? '#fff' : 'rgba(0,0,0,0.1)', weight: f.properties.name === d ? 1.5 : 0.3 })
+                }).addTo(map);
+            }
+            autoZoom(side, p, c, d);
+        }
+
+        function autoZoom(side, p, c, d) {
+            const map = maps[side]; let targetLayer = null;
+            const findLayer = (group, name) => group ? group.getLayers().find(l => l.feature.properties.name === name) : null;
+            if (d && d !== 'ALL') targetLayer = findLayer(layerStacks[side].d, d);
+            else if (c && c !== 'ALL') targetLayer = findLayer(layerStacks[side].c, c);
+            else if (p && p !== 'ALL') targetLayer = findLayer(layerStacks[side].p, p);
+            if (targetLayer) map.flyToBounds(targetLayer.getBounds(), { padding: [40, 40], duration: 0.8 });
+            else map.flyTo([35, 105], 4);
+        }
+
+        function updateLayer(side, type, data) {
+            if (layerStacks[side][type]) maps[side].removeLayer(layerStacks[side][type]);
+            layerStacks[side][type] = L.geoJson(data, { style: { fillColor: '#000', fillOpacity: 0.01, color: 'rgba(0,0,0,0.05)', weight: 1 } }).addTo(maps[side]);
+        }
+
+        function getMetrics(side) {
+            const s = side.toLowerCase(), p = document.getElementById(`p-${s}`).value, c = document.getElementById(`c-${s}`).value, d = document.getElementById(`d-${s}`).value;
+            let currentLevelData = fullData.p.features, levelLabel = "省", activeName = p;
+            if (d && d !== 'ALL') { currentLevelData = fullData.d.features; levelLabel = "区"; activeName = d; }
+            else if (c && c !== 'ALL') { currentLevelData = fullData.c.features; levelLabel = "市"; activeName = c; }
+            const feat = activeName ? [...fullData.p.features, ...fullData.c.features, ...fullData.d.features].find(f => f.properties.name === activeName) : null;
+            if (!feat) return { name: '-', props: { revenue_rmb: 0, sales_rmb: 0 }, ratio: 0, rank: '-', levelLabel };
+            const ratio = nationalTotalRevenue ? (feat.properties.revenue_rmb / nationalTotalRevenue * 100) : 0;
+            const rankedList = currentLevelData.filter(f => f.properties.revenue_rmb > 0).sort((a, b) => b.properties.revenue_rmb - a.properties.revenue_rmb);
+            const rank = rankedList.findIndex(f => f.properties.name === activeName) + 1;
+            return { name: activeName, props: feat.properties, ratio, rank, levelLabel };
+        }
+
+        function updateStats() {
+            const a = getMetrics('A'), b = getMetrics('B');
+            document.getElementById('name-a').innerText = a.name;
+            document.getElementById('name-b').innerText = b.name;
+
+            const maxRev = Math.max(a.props.revenue_rmb, b.props.revenue_rmb, 1);
+            const maxRatio = Math.max(a.ratio, b.ratio, 0.01);
+            const maxSal = Math.max(a.props.sales_rmb, b.props.sales_rmb, 1);
+
+            const container = document.getElementById('metrics-list');
+            container.innerHTML = `
+                ${renderRankRow(`同级营收排名 (${a.levelLabel}/${b.levelLabel})`, a.rank, b.rank)}
+                <div class="h-px bg-black/5 my-1"></div>
+                ${renderBarRow('年度营收总额 (万)', a.props.revenue_rmb / 10000, b.props.revenue_rmb / 10000, maxRev / 10000)}
+                ${renderBarRow('全国市场占比 (%)', a.ratio, b.ratio, maxRatio)}
+                ${renderBarRow('销售预估总值 (万)', a.props.sales_rmb / 10000, b.props.sales_rmb / 10000, maxSal / 10000)}
+            `;
+        }
+
+        function renderBarRow(label, valA, valB, max) {
+            const winA = valA > valB;
+            return `
+            <div class="metric-row">
+                <div class="metric-label text-center">${label}</div>
+                <div class="flex items-center gap-3">
+                    <div class="w-24 text-right font-mono font-black ${winA ? 'text-blue-600 text-xl' : 'text-slate-400 text-sm'}">${valA.toFixed(1)}</div>
+                    <div class="flex-1 h-4 bg-slate-100 rounded-full flex overflow-hidden p-[1px] border border-white">
+                        <div class="h-full bg-blue-500 rounded-full bar-fill" style="width: ${valA / max * 100}%"></div>
+                        <div class="w-0.5"></div>
+                        <div class="h-full bg-orange-500 rounded-full bar-fill" style="width: ${valB / max * 100}%"></div>
+                    </div>
+                    <div class="w-24 text-left font-mono font-black ${!winA ? 'text-orange-600 text-xl' : 'text-slate-400 text-sm'}">${valB.toFixed(1)}</div>
+                </div>
+            </div>`;
+        }
+
+        function renderRankRow(label, rankA, rankB) {
+            const winA = rankA !== '-' && (rankB === '-' || rankA < rankB);
+            const winB = rankB !== '-' && (rankA === '-' || rankB < rankA);
+            return `
+            <div class="metric-row py-2">
+                <div class="metric-label text-center mb-1">${label}</div>
+                <div class="flex items-center justify-between px-12">
+                    <div class="rank-value ${winA ? 'rank-win-a text-6xl' : 'rank-lose text-3xl'}">#${rankA}</div>
+                    <div class="flex-1 flex justify-center opacity-10">
+                        <svg width="60" height="2" viewBox="0 0 60 2"><line x1="0" y1="1" x2="60" y2="1" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4"/></svg>
+                    </div>
+                    <div class="rank-value ${winB ? 'rank-win-b text-6xl' : 'rank-lose text-3xl'}">#${rankB}</div>
+                </div>
+            </div>`;
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>业务数据看板</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background-color: #f8fafc;
+            font-family: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: #334155;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: #f8fafc;
+            transition: opacity 0.4s ease-in-out;
+        }
+
+        .map-loading {
+            opacity: 0.6;
+            filter: grayscale(0.5);
+        }
+
+        .leaflet-container path {
+            outline: none !important;
+            transition: fill 0.3s ease, fill-opacity 0.3s ease, stroke 0.3s ease;
+        }
+
+        .header-title {
+            width: 100%;
+            height: 56px;
+            background-color: #ffffff;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            z-index: 1000;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .xiamian {
+            width: 100%;
+            height: calc(100vh - 56px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+
+        .map-legend-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            background-color: #ffffff;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+        }
+
+        .map-section {
+            width: 70%;
+            height: 100%;
+            position: relative;
+            background-color: #f8fafc;
+        }
+
+        .map-controls-group {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+
+        .map-switch-ctrl {
+            display: flex;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 4px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .map-switch-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: #64748b;
+            transition: all 0.2s ease;
+            border-radius: 6px;
+        }
+
+        .map-switch-btn.active {
+            background: #ffffff;
+            color: #3b82f6;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .zoom-indicator {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #64748b;
+            border: 1px solid #e2e8f0;
+            pointer-events: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            font-weight: 500;
+        }
+
+        .dynamic-legend {
+            position: absolute;
+            bottom: 20px;
+            left: 16px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            width: 180px;
+        }
+
+        .legend-bar-container {
+            position: relative;
+            height: 20px;
+            width: 100%;
+            margin: 4px 0;
+            display: flex;
+            align-items: center;
+        }
+
+        .legend-bar {
+            height: 8px;
+            width: 100%;
+            border-radius: 4px;
+            background: linear-gradient(to right, #bfdbfe, #60a5fa, #3b82f6, #1d4ed8, #1e3a8a);
+        }
+
+        .legend-pointer {
+            position: absolute;
+            top: 50%;
+            left: 0%;
+            width: 12px;
+            height: 12px;
+            background: #ffffff;
+            border: 2px solid #3b82f6;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+            box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+            z-index: 2;
+            opacity: 0;
+        }
+
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-family: monospace;
+            color: #64748b;
+        }
+
+        .chart-section {
+            width: 30%;
+            height: 100%;
+            background-color: #fcfcfd;
+            border-left: 1px solid #e2e8f0;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .chart-header {
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+        }
+
+        .chart-header::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            background-color: #2563eb;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        #sidebar-info {
+            min-height: 200px;
+            margin-bottom: 20px;
+        }
+
+        .treemap-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 20px;
+        }
+
+        #treemap {
+            width: 100%;
+            height: 100%;
+            min-height: 250px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .info-tooltip {
+            background: white !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 6px !important;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+            padding: 10px 14px !important;
+            font-size: 12px !important;
+            color: #1e293b !important;
+        }
+
+        .node-label {
+            font-size: 10px;
+            fill: white;
+            pointer-events: none;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+        }
+
+        .empty-state {
+            height: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 1px dashed #e2e8f0;
+            border-radius: 8px;
+            background-color: #f8fafc;
+            color: #94a3b8;
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        .percent-tag {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            margin-left: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header-title">业务数据实时看板</div>
+
+    <div class="xiamian">
+        <div class="map-legend-container">
+            <div class="map-section">
+                <div class="map-controls-group">
+                    <div class="map-switch-ctrl">
+                        <button id="btn-osm" class="map-switch-btn active" onclick="switchLayer('osm')">OSM底图</button>
+                        <button id="btn-mapbox" class="map-switch-btn" onclick="switchLayer('mapbox')">Mapbox
+                            Light</button>
+                        <button id="btn-gaode" class="map-switch-btn" onclick="switchLayer('gaode')">高德极简</button>
+                    </div>
+                    <div class="zoom-indicator" id="zoom-indicator">视图层级: 省级</div>
+                </div>
+
+                <div id="map"></div>
+
+                <div class="dynamic-legend" id="map-legend">
+                    <div class="text-[10px] font-bold text-slate-500 uppercase flex justify-between">
+                        <span>收入分布</span>
+                        <span id="legend-unit">RMB</span>
+                    </div>
+                    <div class="legend-bar-container">
+                        <div class="legend-bar"></div>
+                        <div class="legend-pointer" id="legend-pointer"></div>
+                    </div>
+                    <div class="legend-labels">
+                        <span id="legend-min">0</span>
+                        <span id="legend-max">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-header">详细数据</div>
+                <div id="sidebar-info">
+                    <div class="empty-state">请悬浮有数据区域查看详情</div>
+                </div>
+
+                <div class="treemap-container">
+                    <div class="chart-header" id="treemap-title">收入占比</div>
+                    <div id="treemap"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const MAPBOX_TOKEN = 'YOUR_MAPBOX_ACCESS_TOKEN_HERE';
+
+        const layers = {
+            osm: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, minZoom: 3 }),
+            mapbox: L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}&set-style-language=zh-Hans`, {
+                tileSize: 512, zoomOffset: -1, maxZoom: 19, minZoom: 3
+            }),
+            gaode: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}', {
+                subdomains: ["1", "2", "3", "4"], maxZoom: 19, minZoom: 3
+            })
+        };
+        const map = L.map('map', { zoomControl: true, attributionControl: false }).setView([35.5, 106], 4);
+        layers.osm.addTo(map);
+
+        let fullData = { province: null, city: null, district: null };
+        let nationalTotals = { revenue: 0, sales: 0 };
+
+        let activeGeoLayer = null;
+        let backgroundOutlineLayer = null; // 背景轮廓图层
+        let currentLevel = 'province';
+        let revenueStats = { min: 0, max: 0, range: 0 };
+
+        const THRESHOLD_CITY = 5;
+        const THRESHOLD_DISTRICT = 8;
+
+        function getColor(v) {
+            if (v === null || v === undefined || v === 0) return '#f1f5f9';
+            if (revenueStats.range <= 0) return '#3b82f6';
+            const ratio = (v - revenueStats.min) / revenueStats.range;
+            if (ratio > 0.8) return '#1e3a8a';
+            if (ratio > 0.6) return '#1d4ed8';
+            if (ratio > 0.4) return '#3b82f6';
+            if (ratio > 0.2) return '#60a5fa';
+            return '#bfdbfe';
+        }
+
+        function updateLegendPointer(val) {
+            const pointer = document.getElementById('legend-pointer');
+            if (val === null || val === undefined || val === 0 || revenueStats.range <= 0) {
+                pointer.style.opacity = "0";
+                return;
+            }
+            const ratio = Math.max(0, Math.min(1, (val - revenueStats.min) / revenueStats.range));
+            pointer.style.opacity = "1";
+            pointer.style.left = (ratio * 100) + "%";
+        }
+
+        // 背景轮廓样式：无填充，深灰边框
+        function outlineStyle(feature) {
+            return {
+                fillColor: 'transparent',
+                weight: 2.0,
+                color: '#475569',
+                opacity: 0.6,
+                interactive: false
+            };
+        }
+
+        function dataStyle(feature) {
+            const val = feature.properties.revenue_rmb;
+            const hasData = val !== null && val !== undefined && val !== 0;
+            let weight = 1.2;
+            let color = '#cbd5e1';
+            if (currentLevel === 'city') weight = 1.0;
+            if (currentLevel === 'district') { weight = 0.5; color = '#e2e8f0'; }
+            return { fillColor: getColor(val), weight: weight, color: color, opacity: 1, fillOpacity: hasData ? 0.9 : 0.3 };
+        }
+
+        function onEachFeature(feature, layer) {
+            const props = feature.properties;
+            const hasData = props.revenue_rmb !== null && props.revenue_rmb > 0;
+            layer.on({
+                mouseover: (e) => {
+                    const l = e.target;
+                    l.setStyle({ weight: currentLevel === 'district' ? 2 : 4, color: '#2563eb', fillOpacity: hasData ? 1 : 0.5 });
+                    l.bringToFront();
+                    if (hasData) {
+                        let tooltipContent = `<div class="font-bold">${props.name}</div>`;
+                        tooltipContent += `<div class="text-blue-700 font-mono mt-1 font-bold">¥${props.revenue_rmb.toLocaleString()}</div>`;
+                        l.bindTooltip(tooltipContent, { sticky: true, className: 'info-tooltip' }).openTooltip();
+                        updateLegendPointer(props.revenue_rmb);
+                    }
+                    updateSidebar(props);
+                },
+                mouseout: (e) => {
+                    activeGeoLayer.resetStyle(e.target);
+                    updateLegendPointer(null);
+                },
+                click: (e) => {
+                    if (currentLevel !== 'district') {
+                        map.flyToBounds(e.target.getBounds(), { padding: [50, 50], duration: 1.2 });
+                    }
+                }
+            });
+        }
+
+        function updateSidebar(props) {
+            const container = document.getElementById('sidebar-info');
+            const val = props.revenue_rmb || 0;
+            const sales = props.sales_rmb || 0;
+
+            const revenuePercent = nationalTotals.revenue > 0 ? ((val / nationalTotals.revenue) * 100).toFixed(2) : "0.00";
+            const salesPercent = nationalTotals.sales > 0 ? ((sales / nationalTotals.sales) * 100).toFixed(2) : "0.00";
+
+            let levelLabel = currentLevel === 'province' ? '省份' : (currentLevel === 'city' ? '城市' : '区县');
+
+            container.innerHTML = `
+                <div class="bg-white animate-in slide-in-from-right-4 duration-300">
+                    <div class="text-xs text-slate-400 font-bold uppercase mb-1">当前${levelLabel}</div>
+                    <div class="text-xl font-bold text-slate-800 mb-4">${props.name}</div>
+                    <div class="space-y-4">
+                        <div class="p-3 ${val > 0 ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-100'} rounded-lg border">
+                            <div class="flex items-center mb-1">
+                                <span class="text-[10px] font-bold ${val > 0 ? 'text-blue-500' : 'text-slate-400'} uppercase">业务收入</span>
+                                ${val > 0 ? `<span class="percent-tag bg-blue-600 text-white">占全国 ${revenuePercent}%</span>` : ''}
+                            </div>
+                            <div class="text-xl font-mono font-bold ${val > 0 ? 'text-blue-800' : 'text-slate-400'}">¥${val.toLocaleString()}</div>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                            <div class="flex items-center mb-1">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">销售金额</span>
+                                ${sales > 0 ? `<span class="percent-tag bg-slate-500 text-white">占全国 ${salesPercent}%</span>` : ''}
+                            </div>
+                            <div class="text-lg font-mono font-bold text-slate-600">¥${sales.toLocaleString()}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function updateMapLevel() {
+            const zoom = map.getZoom();
+            let newLevel = 'province';
+            if (zoom > THRESHOLD_DISTRICT) newLevel = 'district';
+            else if (zoom > THRESHOLD_CITY) newLevel = 'city';
+
+            if (newLevel !== currentLevel) {
+                const mapDiv = document.getElementById('map');
+                mapDiv.classList.add('map-loading');
+                setTimeout(() => {
+                    currentLevel = newLevel;
+                    const levelMap = { 'province': '省级', 'city': '市级', 'district': '区级' };
+                    document.getElementById('zoom-indicator').innerText = `视图层级: ${levelMap[currentLevel]}`;
+                    renderGeoJson();
+                    mapDiv.classList.remove('map-loading');
+                }, 250);
+            }
+        }
+
+        function calculateStats(data) {
+            const values = data.features
+                .map(f => f.properties.revenue_rmb)
+                .filter(v => v !== null && v !== undefined && v > 0);
+
+            revenueStats.min = values.length ? Math.min(...values) : 0;
+            revenueStats.max = values.length ? Math.max(...values) : 0;
+            revenueStats.range = revenueStats.max - revenueStats.min;
+
+            const minEl = document.getElementById('legend-min');
+            const maxEl = document.getElementById('legend-max');
+            const legendEl = document.getElementById('map-legend');
+
+            if (values.length > 0) {
+                legendEl.style.opacity = "1";
+                const formatVal = (num) => {
+                    if (num >= 10000) return (num / 10000).toFixed(1) + 'w';
+                    return num.toLocaleString();
+                };
+                minEl.innerText = formatVal(revenueStats.min);
+                maxEl.innerText = formatVal(revenueStats.max);
+            } else {
+                legendEl.style.opacity = "0.5";
+                minEl.innerText = "0";
+                maxEl.innerText = "0";
+            }
+            updateLegendPointer(null);
+        }
+
+        function renderGeoJson() {
+            const data = fullData[currentLevel];
+            if (!data) return;
+            calculateStats(data);
+
+            // 清理旧图层
+            if (activeGeoLayer) map.removeLayer(activeGeoLayer);
+            if (backgroundOutlineLayer) map.removeLayer(backgroundOutlineLayer);
+
+            /**
+             * 关键逻辑：保留父级边界
+             * 1. 处于市级视图时，加载省级数据作为背景
+             * 2. 处于区级视图时，加载市级数据作为背景
+             */
+            if (currentLevel === 'city' && fullData.province) {
+                backgroundOutlineLayer = L.geoJSON(fullData.province, { style: outlineStyle }).addTo(map);
+            } else if (currentLevel === 'district' && fullData.city) {
+                backgroundOutlineLayer = L.geoJSON(fullData.city, { style: outlineStyle }).addTo(map);
+            }
+
+            // 加载当前活动数据层
+            activeGeoLayer = L.geoJSON(data, { style: dataStyle, onEachFeature: onEachFeature }).addTo(map);
+
+            // 确保背景层在下，活动层在上
+            if (backgroundOutlineLayer) backgroundOutlineLayer.bringToBack();
+            activeGeoLayer.bringToFront();
+
+            renderTreemap(data);
+        }
+
+        function renderTreemap(data) {
+            const container = document.getElementById('treemap');
+            const width = container.offsetWidth;
+            const height = container.offsetHeight || 300;
+            const filteredData = data.features
+                .filter(f => f.properties.revenue_rmb > 0)
+                .map(f => {
+                    const parentName = f.properties.parent_city || f.properties.city || "";
+                    const displayName = (currentLevel === 'district' && parentName) ? `${parentName}-${f.properties.name}` : f.properties.name;
+                    return { name: displayName, value: f.properties.revenue_rmb, originalProps: f.properties };
+                })
+                .sort((a, b) => b.value - a.value);
+
+            const actualCount = filteredData.length;
+            const displayCount = Math.min(actualCount, 7);
+            const sortedData = filteredData.slice(0, displayCount);
+            const levelLabel = currentLevel === 'province' ? '省份' : (currentLevel === 'city' ? '城市' : '区县');
+            document.getElementById('treemap-title').innerText = `${levelLabel}收入占比 ${actualCount > 7 ? 'Top 7' : (actualCount > 0 ? `(共${actualCount}个)` : '')}`;
+
+            if (sortedData.length === 0) {
+                container.innerHTML = '<div class="empty-state">当前视图暂无业务数据</div>';
+                return;
+            }
+
+            const rootData = { name: "root", children: sortedData };
+            const root = d3.hierarchy(rootData).sum(d => d.value).sort((a, b) => b.value - a.value);
+            d3.treemap().size([width, height]).padding(2).round(true)(root);
+
+            let svg = d3.select("#treemap").select("svg");
+            if (svg.empty()) svg = d3.select("#treemap").append("svg").attr("width", width).attr("height", height);
+            else svg.attr("width", width).attr("height", height);
+
+            const leaves = svg.selectAll("g.leaf").data(root.leaves(), d => d.data.name);
+            const leafEnter = leaves.enter().append("g").attr("class", "leaf");
+            leafEnter.append("rect").attr("rx", 4).attr("x", d => d.x0).attr("y", d => d.y0).attr("width", 0).attr("height", 0);
+            leafEnter.append("text").attr("class", "node-label");
+
+            const leafUpdate = leafEnter.merge(leaves);
+            leafUpdate.select("rect")
+                .transition().duration(800).ease(d3.easeCubicOut)
+                .attr("x", d => d.x0).attr("y", d => d.y0)
+                .attr("width", d => Math.max(0, d.x1 - d.x0))
+                .attr("height", d => Math.max(0, d.y1 - d.y0))
+                .attr("fill", d => getColor(d.data.value));
+
+            leafUpdate.select("rect")
+                .on("mouseover", (e, d) => {
+                    d3.select(e.currentTarget).transition().duration(200).attr("fill-opacity", 0.75);
+                    updateSidebar(d.data.originalProps);
+                    updateLegendPointer(d.data.value);
+                })
+                .on("mouseout", (e, d) => {
+                    d3.select(e.currentTarget).transition().duration(200).attr("fill-opacity", 1);
+                    updateLegendPointer(null);
+                });
+
+            leafUpdate.select("text")
+                .transition().duration(800)
+                .attr("x", d => d.x0 + 4).attr("y", d => d.y0 + 15)
+                .text(d => (d.x1 - d.x0 > 60 && d.y1 - d.y0 > 25) ? d.data.name : "");
+
+            leaves.exit().transition().duration(500).style("opacity", 0).remove();
+        }
+
+        function switchLayer(type) {
+            Object.values(layers).forEach(layer => { if (map.hasLayer(layer)) map.removeLayer(layer); });
+            layers[type].addTo(map);
+            if (backgroundOutlineLayer) backgroundOutlineLayer.bringToBack();
+            if (activeGeoLayer) activeGeoLayer.bringToFront();
+            document.querySelectorAll('.map-switch-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn-${type}`).classList.add('active');
+        }
+
+        async function initData() {
+            try {
+                const [provRes, cityRes, distRes] = await Promise.all([
+                    fetch('./shp/province_summary.geojson'),
+                    fetch('./shp/city_summary.geojson'),
+                    fetch('./shp/district_summary.geojson')
+                ]);
+
+                fullData.province = await provRes.json();
+                fullData.city = await cityRes.json();
+                fullData.district = await distRes.json();
+
+                nationalTotals.revenue = fullData.province.features.reduce((acc, f) => acc + (f.properties.revenue_rmb || 0), 0);
+                nationalTotals.sales = fullData.province.features.reduce((acc, f) => acc + (f.properties.sales_rmb || 0), 0);
+
+                renderGeoJson();
+                map.on('zoomend', updateMapLevel);
+
+                window.addEventListener('resize', () => {
+                    if (fullData[currentLevel]) renderTreemap(fullData[currentLevel]);
+                });
+
+            } catch (err) {
+                console.error("数据加载错误:", err);
+            }
+        }
+
+        window.onload = () => {
+            map.invalidateSize();
+            initData();
+        };
+    </script>
+</body>
+
+</html>

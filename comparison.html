@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>IPSOS - 区域对比</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 1. 强制所有元素隐藏默认鼠标 */
+        * {
+            cursor: none !important;
+        }
+
+        /* 2. 专门针对 Leaflet 的交互层进行覆盖 */
+        .leaflet-interactive,
+        .leaflet-container,
+        .leaflet-grab,
+        .leaflet-pointer,
+        .leaflet-control-zoom a,
+        .region-select {
+            cursor: none !important;
+        }
+
+
+        :root {
+            --ios-bg: #f2f2f7;
+            --accent-blue: #007aff;
+            --accent-orange: #f26d21;
+        }
+
+        body {
+            background: var(--ios-bg);
+            font-family: -apple-system, sans-serif;
+            cursor: none;
+            overflow: hidden;
+            color: #1c1c1e;
+        }
+
+        #cursor {
+            position: fixed;
+            width: 12px;
+            height: 12px;
+            background: var(--accent-blue);
+            border-radius: 50%;
+            pointer-events: none;
+            /* 极其重要：防止自定义光标挡住点击事件 */
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            /* 让跟随更丝滑 */
+            transition: width 0.2s, height 0.2s, background-color 0.2s;
+        }
+
+
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        .map-wrapper {
+            position: relative;
+            border-radius: 28px;
+            overflow: hidden;
+            height: 100%;
+            background: #fff;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .region-select {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 5px 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            width: 130px;
+            font-weight: 600;
+            outline: none;
+        }
+
+        .bar-fill {
+            transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 还原原版 VS 区域样式 */
+        .vs-badge {
+            background: linear-gradient(180deg, #ffffff 0%, #f9f9fb 100%);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border-radius: 24px;
+            padding: 20px 24px;
+            position: relative;
+        }
+
+        .vs-divider {
+            font-style: italic;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-orange));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 32px;
+            font-weight: 900;
+            margin: 0 20px;
+            letter-spacing: 0.1em;
+        }
+
+        /* 增大地区名称字号 */
+        .region-name {
+            font-size: 28px;
+            font-weight: 900;
+            flex: 1;
+            letter-spacing: -0.02em;
+        }
+
+        /* 排名：优化后的轻量化样式，移除黑色厚重块 */
+        .rank-value {
+            font-family: ui-monospace, monospace;
+            font-weight: 900;
+            transition: all 0.4s ease;
+        }
+
+        .rank-win-a {
+            color: var(--accent-blue);
+            transform: scale(1.1);
+            text-shadow: 0 0 15px rgba(0, 122, 255, 0.2);
+        }
+
+        .rank-win-b {
+            color: var(--accent-orange);
+            transform: scale(1.1);
+            text-shadow: 0 0 15px rgba(242, 109, 33, 0.2);
+        }
+
+        .rank-lose {
+            color: #d1d1d6;
+            transform: scale(0.9);
+        }
+
+        /* 指标行：极致紧凑布局 */
+        .metric-row {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 4px 0;
+        }
+
+        /* 面板文字大小 */
+        .metric-label {
+            font-size: 12px;
+            font-weight: 800;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* 档案按钮 */
+        /* 档案按钮基础样式 */
+        .tab-btn {
+            flex: 1;
+            padding: 10px 0;
+            font-size: 0.85rem;
+            font-weight: 800;
+            color: #94a3b8;
+            border-radius: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            letter-spacing: 0.05em;
+        }
+
+        /* 选中状态：档案头升起变白 */
+        .active-tab {
+            background: white;
+            color: #2563eb;
+            /* 对应你图中的蓝色逻辑 */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            transform: translateY(-1px);
+        }
+
+        /* 自定义滚动条（让右侧滚动不突兀） */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #e2e8f0;
+            border-radius: 10px;
+        }
+
+        /* 简单的动画效果 */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .tab-animate {
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        /* title的一些渐变颜色 */
+        .gradient-text {
+            background: linear-gradient(135deg, #003087 0%, #007aff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+
+<body class="h-screen p-4 flex flex-col gap-3">
+    <div id="cursor"></div>
+
+    <!-- 增加 Header 高度从 h-14 到 h-20 -->
+    <header class="h-20 glass rounded-2xl flex items-center px-8 shrink-0 relative">
+        <!-- 放在 header 内的左侧或合适位置 -->
+        <button onclick="goBack()"
+            class="flex items-center gap-2 px-4 py-2 bg-white/50 rounded-2xl hover:bg-white transition-all text-sm font-bold text-slate-600 mr-4">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            返回
+        </button>
+        <div class="absolute left-1/2 -translate-x-1/2 text-center">
+            <span class="text-[25px] font-black tracking-tight mb-0.5 gradient-text">业务数字化对比界面</span>
+        </div>
+    </header>
+
+    <main class="flex-1 flex gap-3 min-h-0">
+        <!-- 左侧地图 -->
+        <div class="flex-1 map-wrapper">
+            <div class="absolute top-3 left-3 z-[1000] flex flex-col gap-2">
+                <select id="p-a" class="region-select" onchange="drill('A', 'p')"></select>
+                <select id="c-a" class="region-select" onchange="drill('A', 'c')" disabled></select>
+                <select id="d-a" class="region-select" onchange="drill('A', 'd')" disabled></select>
+            </div>
+            <div id="map-a" class="h-full w-full"></div>
+        </div>
+
+        <!-- 中间对比面板 -->
+        <div class="w-[400px] glass rounded-[32px] p-6 flex flex-col" id="metrics-container">
+            <div class="vs-badge text-center mb-4">
+                <div class="flex items-center justify-between">
+                    <span id="name-a" class="region-name text-right text-blue-600 truncate text-3xl font-black">-</span>
+                    <span class="vs-divider mx-4 text-slate-300 font-black">VS</span>
+                    <span id="name-b"
+                        class="region-name text-left text-orange-600 truncate text-3xl font-black">-</span>
+                </div>
+                <div id="total-diff-tag" class="text-[11px] font-bold text-slate-400 mt-2 uppercase tracking-[0.2em]">
+                    智能数据对比已就绪
+                </div>
+            </div>
+
+            <div class="flex p-1 bg-slate-100/80 backdrop-blur rounded-2xl mb-6 border border-white/50 shadow-inner">
+                <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn active-tab">对比总览</button>
+                <button onclick="switchTab('brands')" id="tab-brands" class="tab-btn">品牌类别</button>
+                <button onclick="switchTab('skus')" id="tab-skus" class="tab-btn">库存单位</button>
+                <button onclick="switchTab('channels')" id="tab-channels" class="tab-btn">销售途径</button>
+            </div>
+
+            <div id="metrics-list" class="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                <div class="text-center text-slate-300 opacity-50 text-sm italic font-bold mt-20">
+                    请在两侧地图上方选择对比区域...
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧地图 -->
+        <div class="flex-1 map-wrapper">
+            <div class="absolute top-3 left-3 z-[1000] flex flex-col gap-2">
+                <select id="p-b" class="region-select" onchange="drill('B', 'p')"></select>
+                <select id="c-b" class="region-select" onchange="drill('B', 'c')" disabled></select>
+                <select id="d-b" class="region-select" onchange="drill('B', 'd')" disabled></select>
+            </div>
+            <div id="map-b" class="h-full w-full"></div>
+        </div>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // --- 1. 基础配置与交互 ---
+        window.addEventListener('mousemove', e => {
+            const c = document.getElementById('cursor');
+            c.style.left = e.clientX + 'px';
+            c.style.top = e.clientY + 'px';
+            c.style.background = e.clientX < window.innerWidth / 2 ? 'var(--accent-blue)' : 'var(--accent-orange)';
+        });
+
+        let fullData = {};        // 地图 GeoJSON
+        let businessData = {};    // 详细业务数据 (来自 business_data.json)
+        let nationalTotalRevenue = 0;
+        let maps = { A: null, B: null };
+        let layerStacks = { A: { p: null, c: null, d: null }, B: { p: null, c: null, d: null } };
+        let currentTab = 'overview';
+
+        // --- 2. 初始化加载 ---
+        async function init() {
+            const fetchJson = url => fetch(url).then(r => r.json());
+            try {
+                // 同时加载地图数据和业务详细数据
+                const [pGeo, cGeo, dGeo, bData] = await Promise.all([
+                    fetchJson('./shp/province_summary.geojson'),
+                    fetchJson('./shp/city_summary.geojson'),
+                    fetchJson('./shp/district_summary.geojson'),
+                    fetchJson('./business_data.json')
+                ]);
+
+                fullData = { province: pGeo, city: cGeo, district: dGeo };
+                businessData = bData;
+
+                nationalTotalRevenue = fullData.province.features.reduce((sum, f) => sum + (f.properties.revenue_rmb || 0), 0);
+
+                ['A', 'B'].forEach(id => {
+                    maps[id] = L.map(`map-${id.toLowerCase()}`, { zoomControl: false, attributionControl: false }).setView([35, 105], 4);
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(maps[id]);
+                    updateLayer(id, 'p', fullData.province.features);
+                    fillSelect(id, 'p', fullData.province.features);
+                });
+            } catch (e) { console.error("数据加载失败:", e); }
+        }
+
+        // --- 3. 标签切换逻辑 ---
+        function switchTab(tabId) {
+            currentTab = tabId;
+            // 更新按钮样式
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active-tab'));
+            document.getElementById(`tab-${tabId}`).classList.add('active-tab');
+            // 刷新列表
+            updateStats();
+        }
+
+        // --- 4. 核心渲染函数 (重点修改) ---
+        function updateStats() {
+            const a = getMetrics('A'), b = getMetrics('B');
+            document.getElementById('name-a').innerText = a.name;
+            document.getElementById('name-b').innerText = b.name;
+
+            const container = document.getElementById('metrics-list');
+            // 添加切换动画
+            container.classList.remove('tab-animate');
+            void container.offsetWidth;
+            container.classList.add('tab-animate');
+
+            // 如果还没选区域，保持默认提示
+            if (a.name === '-' && b.name === '-') return;
+
+            // 获取业务详细数据 (business_data.json 中的对象)
+            const bizA = businessData[a.name] || {};
+            const bizB = businessData[b.name] || {};
+
+            if (currentTab === 'overview') {
+                // 渲染原来的总览界面
+                const maxRev = Math.max(a.props.revenue_rmb, b.props.revenue_rmb, 1);
+                const maxRatio = Math.max(a.ratio, b.ratio, 0.01);
+                const maxSal = Math.max(a.props.sales_rmb, b.props.sales_rmb, 1);
+
+                container.innerHTML = `
+                ${renderRankRow(`营收排名对比`, a.rank, b.rank, a.levelLabel, b.levelLabel)}
+                <div class="h-px bg-black/5 my-1"></div>
+                ${renderBarRow('年度营收总额 (万)', a.props.revenue_rmb / 10000, b.props.revenue_rmb / 10000, maxRev / 10000)}
+                ${renderBarRow('全国市场占比 (%)', a.ratio, b.ratio, maxRatio)}
+                ${renderBarRow('订单转化指数', bizA.conversion || 0, bizB.conversion || 0, Math.max(bizA.conversion || 0, bizB.conversion || 1))}
+            `;
+            } else {
+                // 渲染 Brands / SKUs / Channels 的对比分布
+                // 注意：JSON 里的 key 是 "brands", "skus", "channels" (小写)
+                const type = currentTab.toLowerCase();
+                container.innerHTML = renderDistributionLayout(bizA[type], bizB[type], a.name, b.name);
+            }
+        }
+
+        // 新增：分布对比渲染逻辑
+        // 新增了 nameA 和 nameB 两个参数
+        function renderDistributionLayout(mapA = {}, mapB = {}, nameA = 'A区', nameB = 'B区') {
+            const allKeys = Array.from(new Set([...Object.keys(mapA), ...Object.keys(mapB)]));
+            if (allKeys.length === 0) return `<div class="text-center text-slate-300 mt-10">暂无细分数据</div>`;
+
+            // --- 视角 1：Brands (气泡对比) ---
+            if (currentTab === 'brands') {
+                const topBrands = allKeys.sort((a, b) => ((mapA[b] || 0) + (mapB[b] || 0)) - ((mapA[a] || 0) + (mapB[a] || 0))).slice(0, 4);
+                const maxVal = Math.max(...topBrands.map(k => Math.max(mapA[k] || 0, mapB[k] || 0)), 1);
+
+                return `
+        <div class="space-y-8 mt-6">
+            ${topBrands.map(brand => {
+                    const vA = mapA[brand] || 0;
+                    const vB = mapB[brand] || 0;
+                    const sizeA = (vA / maxVal * 40) + 40;
+                    const sizeB = (vB / maxVal * 40) + 40;
+
+                    return `
+                <div class="flex flex-col items-center">
+                    <div class="text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest">${brand}</div>
+                    <div class="flex items-center justify-between w-full px-8 relative">
+                        <div class="flex flex-col items-center w-1/2">
+                            <div class="bg-blue-500 rounded-full flex items-center justify-center text-white font-black text-[10px] shadow-lg shadow-blue-200" 
+                                 style="width: ${sizeA}px; height: ${sizeA}px;">
+                                 ${vA > 1000 ? (vA / 1000).toFixed(1) + 'k' : Math.round(vA)}
+                            </div>
+                            <span class="text-[9px] mt-2 font-bold text-blue-400 truncate w-24 text-center">${nameA}</span>
+                        </div>
+
+                        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-px bg-slate-100"></div>
+
+                        <div class="flex flex-col items-center w-1/2">
+                            <div class="bg-orange-500 rounded-full flex items-center justify-center text-white font-black text-[10px] shadow-lg shadow-orange-200" 
+                                 style="width: ${sizeB}px; height: ${sizeB}px;">
+                                 ${vB > 1000 ? (vB / 1000).toFixed(1) + 'k' : Math.round(vB)}
+                            </div>
+                            <span class="text-[9px] mt-2 font-bold text-orange-400 truncate w-24 text-center">${nameB}</span>
+                        </div>
+                    </div>
+                </div>`;
+                }).join('')}
+        </div>`;
+            }
+
+            // --- 视角 2：SKUs (带显眼中轴虚线) ---
+            if (currentTab === 'skus') {
+                const topKeys = allKeys.sort((a, b) => ((mapA[b] || 0) + (mapB[b] || 0)) - ((mapA[a] || 0) + (mapB[a] || 0))).slice(0, 6);
+                return `
+        <div class="space-y-4 mt-2">
+            ${topKeys.map(key => {
+                    const vA = mapA[key] || 0;
+                    const vB = mapB[key] || 0;
+                    const total = vA + vB + 1;
+                    return `
+                    <div class="relative p-3 rounded-2xl border border-white bg-white/40 shadow-sm">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-xs font-black text-slate-700">${key}</span>
+                            <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${vA > vB ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}">
+                                ${vA > vB ? nameA : nameB} 领先
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-[10px] font-mono font-bold text-blue-500 w-10 text-right">${Math.round(vA)}</div>
+                            <div class="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden flex shadow-inner relative">
+                                <div class="h-full bg-blue-500 bar-fill" style="width: ${(vA / total * 100)}%"></div>
+                                <div class="h-full bg-orange-500 bar-fill" style="width: ${(vB / total * 100)}%"></div>
+                                <div class="absolute left-1/2 top-0 bottom-0 w-0 border-r-2 border-dashed border-white/90 z-10"></div>
+                            </div>
+                            <div class="text-[10px] font-mono font-bold text-orange-500 w-10 text-left">${Math.round(vB)}</div>
+                        </div>
+                    </div>`;
+                }).join('')}
+        </div>`;
+            }
+
+            // --- 视角 3：Channels (中置饼图，左右对峙) ---
+            if (currentTab === 'channels') {
+                return `
+        <div class="flex flex-col gap-4 mt-2">
+            ${allKeys.map(key => {
+                    const vA = mapA[key] || 0;
+                    const vB = mapB[key] || 0;
+                    const total = vA + vB + 0.0001;
+                    const pA = (vA / total * 100).toFixed(0);
+                    const pB = (100 - pA);
+
+                    return `
+                <div class="flex flex-col items-center bg-white/40 rounded-[24px] p-4 border border-white shadow-sm transition-all hover:bg-white/60">
+                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">${key}</div>
+                    
+                    <div class="grid grid-cols-[1fr_auto_1fr] items-center w-full gap-2">
+                        <div class="text-right pr-2">
+                            <div class="text-[9px] text-blue-400 font-bold uppercase tracking-tighter truncate w-20 float-right">${nameA}</div>
+                            <div class="clear-both text-sm font-black text-blue-600 font-mono">${Math.round(vA).toLocaleString()}</div>
+                            <div class="text-[10px] text-slate-400 font-bold">${pA}%</div>
+                        </div>
+
+                        <div class="relative w-16 h-16">
+                            <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                                <circle cx="18" cy="18" r="16" fill="none" stroke="#f1f5f9" stroke-width="4"></circle>
+                                <circle cx="18" cy="18" r="16" fill="none" stroke="#f26d21" stroke-width="4.5"></circle>
+                                <circle cx="18" cy="18" r="16" fill="none" stroke="#007aff" stroke-width="4.5" 
+                                        stroke-dasharray="${pB} 100" stroke-dashoffset="-${pA}" stroke-linecap="round"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <div class="w-1.5 h-1.5 bg-slate-200 rounded-full"></div>
+                            </div>
+                        </div>
+
+                        <div class="text-left pl-2">
+                            <div class="text-[9px] text-orange-400 font-bold uppercase tracking-tighter truncate w-20">${nameB}</div>
+                            <div class="text-sm font-black text-orange-600 font-mono">${Math.round(vB).toLocaleString()}</div>
+                            <div class="text-[10px] text-slate-400 font-bold">${pB}%</div>
+                        </div>
+                    </div>
+                </div>`;
+                }).join('')}
+        </div>`;
+            }
+        }
+
+        // --- 5. 地图钻取逻辑 (保持你原有的不变) ---
+        function goBack() { window.location.href = 'index.html'; }
+
+        function fillSelect(side, type, features, parentName = null) {
+            const s = side.toLowerCase();
+            const el = document.getElementById(`${type}-${s}`);
+            const currentP = document.getElementById(`p-${s}`).value; // 获取当前已选的省份
+
+            el.innerHTML = `<option value="">${type === 'p' ? '省份' : type === 'c' ? '城市' : '区县'}</option>`;
+
+            let filtered = features.filter(f => {
+                const p = f.properties;
+                if (!(p.revenue_rmb > 0 || p.sales_rmb > 0)) return false;
+                if (parentName && parentName !== 'ALL') {
+                    // 区县级过滤：必须名字对，且省份也得对
+                    if (type === 'd') {
+                        return (p.parent_city === parentName || p.city === parentName) && p.province.includes(currentP);
+                    }
+                    return p.parent_province === parentName || p.province === parentName || p.parent_city === parentName || p.city === parentName;
+                }
+                return true;
+            });
+            filtered.sort((a, b) => (b.properties.revenue_rmb || 0) - (a.properties.revenue_rmb || 0)).forEach(f => el.add(new Option(f.properties.name, f.properties.name)));
+            el.disabled = false;
+        }
+
+        function drill(side, type) {
+            const s = side.toLowerCase();
+            const val = document.getElementById(`${type}-${s}`).value;
+            if (type === 'p') {
+                document.getElementById(`c-${s}`).value = ""; document.getElementById(`d-${s}`).value = "";
+                if (val && val !== 'ALL') fillSelect(side, 'c', fullData.city.features, val);
+                else document.getElementById(`c-${s}`).disabled = true;
+            } else if (type === 'c') {
+                document.getElementById(`d-${s}`).value = "";
+                if (val && val !== 'ALL') fillSelect(side, 'd', fullData.district.features, val);
+                else document.getElementById(`d-${s}`).disabled = true;
+            }
+            refreshMap(side);
+            updateStats();
+        }
+
+        function refreshMap(side) {
+            const s = side.toLowerCase(),
+                p = document.getElementById(`p-${s}`).value,
+                c = document.getElementById(`c-${s}`).value,
+                d = document.getElementById(`d-${s}`).value;
+            const map = maps[side], color = side === 'A' ? '#007aff' : '#f26d21';
+            if (layerStacks[side].c) map.removeLayer(layerStacks[side].c);
+            if (layerStacks[side].d) map.removeLayer(layerStacks[side].d);
+            layerStacks[side].p.setStyle(f => ({
+                fillColor: f.properties.name === p ? color : '#000',
+                fillOpacity: f.properties.name === p ? 0.2 : 0.02,
+                color: f.properties.name === p ? color : 'rgba(0,0,0,0.1)',
+                weight: f.properties.name === p ? 2 : 1
+            }));
+            if (p && p !== 'ALL') {
+                const cf = fullData.city.features.filter(f => f.properties.parent_province === p || f.properties.province === p);
+                layerStacks[side].c = L.geoJson(cf, {
+                    style: f => ({ fillColor: f.properties.name === c ? color : 'transparent', fillOpacity: f.properties.name === c ? 0.4 : 0, color: f.properties.name === c ? '#fff' : 'rgba(0,0,0,0.1)', weight: f.properties.name === c ? 1.5 : 0.5 })
+                }).addTo(map);
+            }
+            if (c && c !== 'ALL') {
+                const df = fullData.district.features.filter(f => {
+                    const props = f.properties;
+                    // 关键：三重校验——名字匹配、所属市匹配、所属省匹配
+                    return (props.parent_city === c || props.city === c) &&
+                        (props.province.includes(p));
+                });
+
+                layerStacks[side].d = L.geoJson(df, {
+                    style: f => ({
+                        fillColor: f.properties.name === d ? color : 'transparent',
+                        fillOpacity: f.properties.name === d ? 0.5 : 0,
+                        color: f.properties.name === d ? '#fff' : 'rgba(0,0,0,0.1)',
+                        weight: f.properties.name === d ? 1.5 : 0.3
+                    })
+                }).addTo(map);
+            }
+            autoZoom(side, p, c, d);
+        }
+
+        function autoZoom(side, p, c, d) {
+            const map = maps[side];
+            let targetLayer = null;
+
+            // 优化的查找函数：采用严格层级过滤
+            const findLayer = (group, name, parentCity, parentProv) => {
+                if (!group) return null;
+                return group.getLayers().find(l => {
+                    const props = l.feature.properties;
+
+                    // 1. 基础名称必须匹配
+                    if (props.name !== name) return false;
+
+                    // 2. 如果是区县级 (d)，必须同时锁定城市和省份
+                    if (d && d !== 'ALL') {
+                        return props.province === parentProv && props.city === parentCity;
+                    }
+
+                    // 3. 如果是城市级 (c)，必须锁定省份
+                    if (c && c !== 'ALL') {
+                        return props.province === parentProv;
+                    }
+
+                    return true;
+                });
+            };
+
+            if (d && d !== 'ALL') {
+                targetLayer = findLayer(layerStacks[side].d, d, c, p);
+            } else if (c && c !== 'ALL') {
+                targetLayer = findLayer(layerStacks[side].c, c, null, p);
+            } else if (p && p !== 'ALL') {
+                targetLayer = findLayer(layerStacks[side].p, p, null, null);
+            }
+
+            if (targetLayer) {
+                map.flyToBounds(targetLayer.getBounds(), { padding: [40, 40], duration: 0.8, maxZoom: 10 });
+            } else {
+                map.flyTo([35, 105], 4);
+            }
+        }
+
+        function updateLayer(side, type, data) {
+            if (layerStacks[side][type]) maps[side].removeLayer(layerStacks[side][type]);
+            layerStacks[side][type] = L.geoJson(data, { style: { fillColor: '#000', fillOpacity: 0.01, color: 'rgba(0,0,0,0.05)', weight: 1 } }).addTo(maps[side]);
+        }
+
+        function getMetrics(side) {
+            const s = side.toLowerCase();
+
+            // 获取当前下拉框选中的原始值
+            const pVal = document.getElementById(`p-${s}`).value;
+            const cVal = document.getElementById(`c-${s}`).value;
+            const dVal = document.getElementById(`d-${s}`).value;
+
+            if (!pVal || pVal === "") {
+                return { name: '-', props: { revenue_rmb: 0, sales_rmb: 0 }, ratio: 0, rank: '-', levelLabel: '省' };
+            }
+
+            let currentLevelData, levelLabel, activeName;
+
+            // 1. 确定当前层级（注意：这里要对应你在 init 里的赋值名，比如 fullData.district）
+            if (dVal && dVal !== 'ALL') {
+                currentLevelData = fullData.district.features; // 确认是 district 还是 d
+                levelLabel = "区";
+                activeName = dVal;
+            } else if (cVal && cVal !== 'ALL') {
+                currentLevelData = fullData.city.features;     // 确认是 city 还是 c
+                levelLabel = "市";
+                activeName = cVal;
+            } else {
+                currentLevelData = fullData.province.features; // 确认是 province 还是 p
+                levelLabel = "省";
+                activeName = pVal;
+            }
+
+            // 2. 严格查找逻辑
+            const feat = currentLevelData.find(f => {
+                const props = f.properties;
+
+                // 增加 .includes 处理“天津”与“天津市”不匹配的问题
+                if (levelLabel === "区") {
+                    // 匹配：名字相同 且 省份包含 且 城市包含
+                    return props.name === dVal &&
+                        props.province.includes(pVal) &&
+                        props.city.includes(cVal);
+                } else if (levelLabel === "市") {
+                    return props.name === cVal && props.province.includes(pVal);
+                } else {
+                    return props.name === pVal;
+                }
+            });
+
+            // 如果找不到要素，直接中断并返回空
+            if (!feat) {
+                console.warn(`未找到地理要素: ${pVal}-${cVal}-${dVal}`);
+                return { name: '-', props: { revenue_rmb: 0, sales_rmb: 0 }, ratio: 0, rank: '-', levelLabel };
+            }
+
+            // 3. 计算占比 (使用找到的 feat 里的数据)
+            const ratio = (nationalTotalRevenue && feat.properties.revenue_rmb)
+                ? (feat.properties.revenue_rmb / nationalTotalRevenue * 100)
+                : 0;
+
+            // 4. 计算排名
+            const rankedList = currentLevelData
+                .filter(f => f.properties.revenue_rmb > 0)
+                .sort((a, b) => b.properties.revenue_rmb - a.properties.revenue_rmb);
+
+            // 排名查找也要用联合唯一标识，否则排名数字也会错
+            const rank = rankedList.findIndex(f => {
+                const pr = f.properties;
+                if (levelLabel === "区") return pr.name === dVal && pr.province.includes(pVal) && pr.city.includes(cVal);
+                if (levelLabel === "市") return pr.name === cVal && pr.province.includes(pVal);
+                return pr.name === pVal;
+            }) + 1;
+
+            return { name: activeName, props: feat.properties, ratio, rank, levelLabel };
+        }
+
+        // 复用你原有的 Bar 和 Rank 渲染
+        function renderBarRow(label, valA, valB, max) {
+            const winA = valA > valB;
+            return `
+        <div class="metric-row">
+            <div class="metric-label text-center">${label}</div>
+            <div class="flex items-center gap-3">
+                <div class="w-20 text-right font-mono font-black ${winA ? 'text-blue-600 text-lg' : 'text-slate-400 text-xs'}">${valA.toFixed(1)}</div>
+                <div class="flex-1 h-3 bg-slate-100 rounded-full flex overflow-hidden p-[1px] border border-white">
+                    <div class="h-full bg-blue-500 rounded-full bar-fill" style="width: ${valA / max * 100}%"></div>
+                    <div class="w-0.5"></div>
+                    <div class="h-full bg-orange-500 rounded-full bar-fill" style="width: ${valB / max * 100}%"></div>
+                </div>
+                <div class="w-20 text-left font-mono font-black ${!winA ? 'text-orange-600 text-lg' : 'text-slate-400 text-xs'}">${valB.toFixed(1)}</div>
+            </div>
+        </div>`;
+        }
+
+        function renderRankRow(label, rankA, rankB, levelA, levelB) {
+            const winA = rankA !== '-' && (rankB === '-' || rankA < rankB);
+            const winB = rankB !== '-' && (rankA === '-' || rankB < rankA);
+
+            // 映射表：将 "省/市/区" 转为描述文字
+            const getContext = (lvl) => {
+                const map = { "省": "所有省份内排名", "市": "所有城市内排名", "区": "所有区县内排名" };
+                return map[lvl] || "同级范围内排名";
+            };
+
+            return `
+    <div class="metric-row py-2">
+        <div class="metric-label text-center mb-1">${label}</div>
+        <div class="flex items-center justify-between px-10 relative">
+            <div class="flex flex-col items-center w-24">
+                <div class="rank-value ${winA ? 'rank-win-a text-5xl' : 'rank-lose text-2xl'}">#${rankA}</div>
+                <div class="text-[9px] text-slate-300 font-bold mt-1 whitespace-nowrap">
+                    ${rankA !== '-' ? getContext(levelA) : ''}
+                </div>
+            </div>
+
+            <div class="flex-1 flex justify-center opacity-10 pt-4">
+                <svg width="40" height="2" viewBox="0 0 60 2">
+                    <line x1="0" y1="1" x2="60" y2="1" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4"/>
+                </svg>
+            </div>
+
+            <div class="flex flex-col items-center w-24">
+                <div class="rank-value ${winB ? 'rank-win-b text-5xl' : 'rank-lose text-2xl'}">#${rankB}</div>
+                <div class="text-[9px] text-slate-300 font-bold mt-1 whitespace-nowrap">
+                    ${rankB !== '-' ? getContext(levelB) : ''}
+                </div>
+            </div>
+        </div>
+    </div>`;
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>
