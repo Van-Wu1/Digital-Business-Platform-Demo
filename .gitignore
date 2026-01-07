@@ -1,1 +1,6 @@
 *.bat
+
+data/demo_sales_china_geo_points.csv
+data/raw
+src/secret.ipynb
+origin
